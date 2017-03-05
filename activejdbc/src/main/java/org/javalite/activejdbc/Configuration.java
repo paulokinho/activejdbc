@@ -17,7 +17,11 @@ package org.javalite.activejdbc;
 
 import org.javalite.activejdbc.cache.CacheManager;
 import org.javalite.activejdbc.cache.NopeCacheManager;
+import org.javalite.activejdbc.connection_config.ConnectionJdbcSpec;
+import org.javalite.activejdbc.connection_config.ConnectionJndiSpec;
+import org.javalite.activejdbc.connection_config.ConnectionSpec;
 import org.javalite.activejdbc.dialects.*;
+import org.javalite.common.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,12 +42,16 @@ public class Configuration {
     private Properties properties = new Properties();
     private static CacheManager cacheManager;
     private static final Logger LOGGER = LoggerFactory.getLogger(Configuration.class);
+    private static String ENV;
 
     private Map<String, Dialect> dialects = new CaseInsensitiveMap<>();
 
     private Map<String, ConnectionSpec> connectionSpecMap = new HashMap<>();
 
     protected Configuration(){
+
+        loadConnectionsSpecs();
+
         try {
             Enumeration<URL> resources = getClass().getClassLoader().getResources("activejdbc_models.properties");
             while (resources.hasMoreElements()) {
@@ -104,7 +112,6 @@ public class Configuration {
         }else{
             cacheManager = new NopeCacheManager();
         }
-        loadConnectionsSpecs();
     }
 
     private void loadConnectionsSpecs() {
@@ -221,18 +228,8 @@ public class Configuration {
 
     //read from classpath, if not found, read from file system. If not found there, throw exception
     private Properties readPropertyFile(String file) throws IOException {
-
         String fileName = file.startsWith("/") ? file : "/" + file;
-        InputStream in = getClass().getResourceAsStream(fileName);
-        Properties props = new Properties();
-        if (in != null) {
-            props.load(in);
-        } else {
-            FileInputStream fin = new FileInputStream(file);
-            props.load(fin);
-            fin.close();
-        }
-        return props;
+        return Util.readProperties(fileName);
     }
 
 
@@ -252,30 +249,34 @@ public class Configuration {
         return cacheManager != null;
     }
 
-    Dialect getDialect(MetaModel mm){
-        Dialect dialect = dialects.get(mm.getDbType());
+    public Dialect getDialect(MetaModel mm){
+        return getDialect(mm.getDbType());
+    }
+
+    public Dialect getDialect(String dbType){
+        Dialect dialect = dialects.get(dbType);
         if (dialect == null) {
-            if(mm.getDbType().equalsIgnoreCase("Oracle")){
+            if(dbType.equalsIgnoreCase("Oracle")){
                 dialect = new OracleDialect();
             }
-            else if(mm.getDbType().equalsIgnoreCase("MySQL")){
+            else if(dbType.equalsIgnoreCase("MySQL")){
                 dialect = new MySQLDialect();
             }
-            else if(mm.getDbType().equalsIgnoreCase("PostgreSQL")){
+            else if(dbType.equalsIgnoreCase("PostgreSQL")){
                 dialect = new PostgreSQLDialect();
             }
-            else if(mm.getDbType().equalsIgnoreCase("h2")){
+            else if(dbType.equalsIgnoreCase("h2")){
                 dialect = new H2Dialect();
             }
-            else if(mm.getDbType().equalsIgnoreCase("Microsoft SQL Server")){
+            else if(dbType.equalsIgnoreCase("Microsoft SQL Server")){
                 dialect = new MSSQLDialect();
             }
-            else if(mm.getDbType().equalsIgnoreCase("SQLite")){
+            else if(dbType.equalsIgnoreCase("SQLite")){
                 dialect = new SQLiteDialect();
             }else{
                 dialect = new DefaultDialect();
             }
-            dialects.put(mm.getDbType(), dialect);
+            dialects.put(dbType, dialect);
         }
         return dialect;
     }
@@ -283,5 +284,42 @@ public class Configuration {
 
     public CacheManager getCacheManager(){
         return cacheManager;
+    }
+
+    /**
+     * Returns name of environment, such as "development", "production", etc.
+     * This is a value that is usually setup with an environment variable <code>ACTIVE_ENV</code>.
+     *
+     * @return name of environment
+     */
+    public static String getEnv(){
+        if(ENV == null){
+            if(!blank(System.getenv("ACTIVE_ENV"))) {
+                ENV = System.getenv("ACTIVE_ENV");
+            }
+
+            if(!blank(System.getProperty("ACTIVE_ENV"))) {
+                ENV = System.getProperty("ACTIVE_ENV");
+            }
+
+            if(!blank(System.getProperty("active_env"))) {
+                ENV = System.getProperty("active_env");
+            }
+
+            if(blank(ENV)){
+                ENV = "development";
+                LOGGER.warn("Environment variable ACTIVE_ENV not provided, defaulting to '" + ENV + "'");
+            }
+        }
+        return ENV;
+    }
+
+    /**
+     * This method must ony be used in tests. Use in other environments at your own peril.
+     *
+     * @param env name of environment (development, staging, production, etc.).
+     */
+    public static void setEnv(String env){
+        ENV = env;
     }
 }

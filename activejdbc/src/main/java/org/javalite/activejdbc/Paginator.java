@@ -31,7 +31,7 @@ import static org.javalite.activejdbc.ModelDelegate.metaModelFor;
  * Model subclass is annotated with @{@link org.javalite.activejdbc.annotations.Cached}, then this class will
  * cache the total count of records returned by {@link #getCount()}, as LazyList will cache the result sets.
  * This class is thread safe and the same instance could be used across multiple web requests and even
- * across multiple users/sessions. It is lightweight class, you can generate an instance each time you need one,
+ * across multiple users/sessions. You can generate an instance each time you need one,
  * or you can cache an instance in a session or even servlet context.
  *
  * @author Igor Polevoy
@@ -46,7 +46,7 @@ public class Paginator<T extends Model> implements Serializable {
     private final MetaModel metaModel;
     private int currentPage;
     private final boolean fullQuery;
-    private final String countQuery;
+    private final String countQueryFull;
     private boolean suppressCounts;
     private Long count = 0L;
 
@@ -55,13 +55,20 @@ public class Paginator<T extends Model> implements Serializable {
      * Convenience constructor. Calls {@link #Paginator(Class, int, String, Object...)} and passes true for <code>suppressCounts</code>.
      */
     public Paginator(Class<? extends T> modelClass, int pageSize, String query, Object... params) {
-        this(modelClass, pageSize, false, query, params);
+        this(modelClass, pageSize, false, query, null, params);
+    }
+
+    /**
+     * Convenience constructor. Calls {@link #Paginator(Class, int, String, Object...)} and passes null for <code>countQuery</code>.
+     */
+    public Paginator(Class<? extends T> modelClass, int pageSize, boolean suppressCounts, String query, Object... params) {
+        this(modelClass, pageSize, suppressCounts, query, null, params);
     }
 
     /**
      * Paginator is created with parameters to jump to chunks of result sets (pages). This class is useful "paging"
      * through result on a user interface (web page).
-     * <p/>
+     * <p></p>
      * <h4>Examples of a sub-query:</h4>
      * <ul>
      * <li><code>"last_name like '%John%'"</code> - this is a sub-query, and the rest of the information will be filled out
@@ -69,7 +76,7 @@ public class Paginator<T extends Model> implements Serializable {
      * <li> "*" - will search for all records, no filtering</li>
      * </ul>
      * Sub-query is used in simple cases, when filtering is done against one table.
-     * <p/>
+     * <p></p>
      * <h4>Full query example</h4>
      * <ul>
      * <li>"select * from people where last_name like '%John%'"</li>
@@ -87,7 +94,7 @@ public class Paginator<T extends Model> implements Serializable {
      *                       query should not contain limit, offset or order by clauses of any kind, Paginator will do this automatically.
      *                       This parameter can have two forms, a sub-query or a full query.
      */
-    public Paginator(Class<? extends T> modelClass, int pageSize, boolean suppressCounts, String query, Object... params) {
+    public Paginator(Class<? extends T> modelClass, int pageSize, boolean suppressCounts, String query, String countQuery, Object... params) {
 
         this.suppressCounts = suppressCounts;
         try {
@@ -102,21 +109,27 @@ public class Paginator<T extends Model> implements Serializable {
         String tableName = Registry.instance().getTableName(modelClass);
         this.metaModel = metaModelFor(tableName);
 
+
         this.fullQuery = DB.SELECT_PATTERN.matcher(query).find();
         if (fullQuery) {
             Matcher m = FROM_PATTERN.matcher(query);
             if (!m.find()) {
                 throw new IllegalArgumentException("SELECT query without FROM");
             }
-            this.countQuery = metaModel.getDialect().selectCount(query.substring(m.end()));
+            String from = query.substring(m.end());
+            if (countQuery != null) {
+                this.countQueryFull = "SELECT " + countQuery + " FROM " + from;
+            } else {
+                this.countQueryFull = metaModel.getDialect().selectCount(from);
+            }
         } else if (query.equals("*")) {
             if (params.length == 0) {
-                this.countQuery = metaModel.getDialect().selectCount(tableName);
+                this.countQueryFull = metaModel.getDialect().selectCount(tableName);
             } else {
                 throw new IllegalArgumentException("cannot provide parameters with query: '*'");
             }
         } else {
-            this.countQuery = metaModel.getDialect().selectCount(tableName, query);
+            this.countQueryFull = metaModel.getDialect().selectCount(tableName, query);
         }
     }
 
@@ -223,10 +236,10 @@ public class Paginator<T extends Model> implements Serializable {
     public Long getCount() {
         if (count == 0L || !suppressCounts) {
             if (metaModel.cached()) {
-                count = (Long) QueryCache.instance().getItem(metaModel.getTableName(), countQuery, params);
+                count = (Long) QueryCache.instance().getItem(metaModel.getTableName(), countQueryFull, params);
                 if (count == null || count == 0) {
                     count = doCount();
-                    QueryCache.instance().addItem(metaModel.getTableName(), countQuery, params, count);
+                    QueryCache.instance().addItem(metaModel.getTableName(), countQueryFull, params, count);
                 }
             } else {
                 count = doCount();
@@ -239,6 +252,104 @@ public class Paginator<T extends Model> implements Serializable {
     }
 
     private Long doCount() {
-        return Convert.toLong(new DB(metaModel.getDbName()).firstCell(countQuery, params));
+        return Convert.toLong(new DB(metaModel.getDbName()).firstCell(countQueryFull, params));
+    }
+
+    public int getPageSize() {
+        return pageSize;
+    }
+
+    /**
+     * Use to create a paginator instance, and provide arguments as needed.
+     * @return self.
+     */
+    public static <E extends Model> PaginatorBuilder<E> instance(){
+        return new PaginatorBuilder<>();
+    }
+
+
+    /**
+     * Provides a builder pattern to create new instances of paginator.
+     */
+    static class PaginatorBuilder<T extends Model>{
+        private Class<? extends T> modelClass;
+        private int pageSize;
+        private boolean suppressCounts = false;
+        private String query;
+        private String countQuery = null;
+        private Object[] params;
+
+        /**
+         * Model class mapped to a table.>
+         *
+         * @param modelClass Model class mapped to a table.>
+         * @return self
+         */
+        public PaginatorBuilder<T> modelClass(Class<T> modelClass){
+            this.modelClass = modelClass;
+            return this;
+        }
+
+        /**
+         * Page size  - number of items in a page
+         *
+         * @param pageSize Page size  - number of items in a page
+         */
+        public PaginatorBuilder<T> pageSize(int pageSize){
+            this.pageSize = pageSize;
+            return this;
+        }
+
+        /**
+         * Suppress calling "select count(*)... " on a table each time. If set to true,
+         *                       it will call count only once. If set to false, it will call count each time
+         *                       {@link #getCount()} is called from {@link #hasNext()} as well.
+         *
+         * @param suppressCounts suppress counts every time.
+         */
+        public PaginatorBuilder<T> suppressCounts(boolean suppressCounts){
+            this.suppressCounts= suppressCounts;
+            return this;
+        }
+
+
+        /**
+         * @param query Query that will be applied every time a new page is requested; this
+         *              query should not contain limit, offset or order by clauses of any kind, Paginator will do this automatically.
+         *              This parameter can have two forms, a sub-query or a full query.
+         */
+        public PaginatorBuilder<T> query(String query) {
+            this.query = query;
+            return this;
+        }
+
+        /**
+         * Part of the query that is responsible for count. Example: <code>COUNT(DISTINCT(u.id)</code>.
+         * Only use this method if you need something more complex than <code>COUNT(*)</code>, since
+         * that is the value that us used by default.
+         *
+         * @param countQuery Part of the query that is responsible for "count. Example: <code>count(*)</code>" or <code>COUNT(DISTINCT(u.id)</code>.
+         */
+        public PaginatorBuilder<T> countQuery(String countQuery) {
+            this.countQuery = countQuery;
+            return this;
+        }
+
+        /**
+         * Array of parameters in case  a query is parametrized
+         * @param params Array of parameters in case  a query is parametrized
+         */
+        public PaginatorBuilder<T> params(Object ... params){
+            this.params = params;
+            return this;
+        }
+
+        /**
+         * Terminal method to create an instance of Paginator.
+         * @return new Paginator properly configured.
+         */
+        public Paginator<T> create(){
+            return new Paginator<T>(modelClass, pageSize, suppressCounts, query, countQuery, params);
+        }
     }
 }

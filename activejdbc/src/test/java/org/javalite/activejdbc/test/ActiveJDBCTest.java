@@ -34,12 +34,12 @@ import org.junit.Before;
 import static org.javalite.activejdbc.test.JdbcProperties.*;
 import static org.javalite.common.Util.*;
 
-public abstract class ActiveJDBCTest extends JSpecSupport {
+public abstract class ActiveJDBCTest implements JSpecSupport {
 
     private static boolean schemaGenerated = false;
 
     @Before
-    public void before() throws Exception {
+    public final void before() throws Exception {
         Base.open(driver(), url(), user(), password());
         synchronized(this) {
             if (!schemaGenerated) {
@@ -52,7 +52,7 @@ public abstract class ActiveJDBCTest extends JSpecSupport {
     }
 
     @After
-    public void after() {
+    public final void after() {
 
         try {
             Base.connection().rollback();
@@ -225,22 +225,5 @@ public abstract class ActiveJDBCTest extends JSpecSupport {
                 closeQuietly(st);
             }
         }
-    }
-
-    PrintStream errOrig;
-    PrintStream err;
-    ByteArrayOutputStream bout;
-
-    protected void replaceSystemError() {
-        errOrig = System.err;
-        bout = new ByteArrayOutputStream();
-        err = new PrintStream(bout);
-        System.setErr(err);
-    }
-
-    protected String getSystemError() throws IOException {
-        err.flush();
-        bout.flush();
-        return bout.toString();
     }
 }

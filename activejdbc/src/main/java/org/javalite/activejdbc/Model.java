@@ -459,13 +459,13 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * load every row into a model instance before deleting, effectively calling (N + 1) per table queries to the DB, one to select all
      * the associated records (per table), and one delete statement per record. Use it for small data sets.
      *
-     * <p/>
+     * <p></p>
      * In cases of simple one to many and polymorphic associations, things are as expected, a parent is deleted an all children are
      * deleted as well, but in more complicated cases, this method will walk entire three of associated tables, sometimes
      * coming back to the same one where it all started.
      * It will follow associations of children and their associations too; consider this a true cascade delete with all implications
      * (circular dependencies, referential integrity constraints, potential performance bottlenecks, etc.)
-     * <p/>
+     * <p></p>
      *
      * Imagine a situation where you have DOCTORS and PATIENTS in many to many relationship (with DOCTORS_PATIENTS table
      * as a join table), and in addition PATIENTS and PRESCRIPTIONS in one to many relationship, where a patient might
@@ -520,7 +520,7 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * , the result is as expected: the DOCTORS:ID=3 is deleted, DOCTORS_PATIENTS:ID=4 is deleted, PATIENTS:ID=3 is deleted
      * and PRESCRIPTIONS:ID=5 is deleted.
      *
-     * <p/>
+     * <p></p>
      * However, when doctor Kentor(#1) is deleted, the following records are also deleted:
      * <ul>
      *     <li>DOCTORS_PATIENTS:ID=1, 2 - these are links to patients</li>
@@ -540,7 +540,7 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * Had doctor Hellen Hunt(#2) had more patients, it would delete them too, and so on. This goes a long way to say that it
      * could be easy to be tangled up in web of associations, so be careful out there.
      *
-     * <p/>
+     * <p></p>
      * After deletion, this instance becomes {@link #frozen()} and cannot be used anymore until {@link #thaw()} is called.
      */
     public void deleteCascade(){
@@ -592,7 +592,7 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * The current record is deleted, as well as immediate children.
      * <h4>Many to many associations</h4>
      * The current record is deleted, as well as links in a join table. Nothing else is deleted.
-     * <p/>
+     * <p></p>
      * After deletion, this instance becomes {@link #frozen()} and cannot be used anymore until {@link #thaw()} is called.
      */
     public void deleteCascadeShallow(){
@@ -604,31 +604,54 @@ public abstract class Model extends CallbackSupport implements Externalizable {
 
 
     private void deleteJoinsForManyToMany() {
-        List<? extends Association> associations = metaModelLocal.getManyToManyAssociations(Collections.<Association>emptyList());
-        for (Association association : associations) {
-            String join = ((Many2ManyAssociation)association).getJoin();
-            String sourceFK = ((Many2ManyAssociation)association).getSourceFkName();
-            new DB(metaModelLocal.getDbName()).exec("DELETE FROM " + join + " WHERE " + sourceFK + " = ?", getId());
+        List<? extends Many2ManyAssociation> associations = metaModelLocal.getManyToManyAssociations(Collections.<Association>emptyList());
+        for (Many2ManyAssociation association : associations) {
+            deleteManyToManyLinks(association);
         }
     }
+
+    /**
+     * Deletes all records from a join table related to this model.
+     *
+     * @param association association  to another table.
+     */
+    private void deleteManyToManyLinks(Many2ManyAssociation association){
+        String join = association.getJoin();
+        String sourceFK = association.getSourceFkName();
+        new DB(metaModelLocal.getDbName()).exec("DELETE FROM " + join + " WHERE " + sourceFK + " = ?", getId());
+    }
+
 
     private void deleteOne2ManyChildrenShallow() {
         List<OneToManyAssociation> childAssociations = metaModelLocal.getOneToManyAssociations(Collections.<Association>emptyList());
         for (OneToManyAssociation association : childAssociations) {
-            String targetTable = metaModelOf(association.getTargetClass()).getTableName();
-            new DB(metaModelLocal.getDbName()).exec("DELETE FROM " + targetTable + " WHERE " + association.getFkName() + " = ?", getId());
+            deleteOne2ManyChildrenShallow(association);
         }
+    }
+
+    /**
+     * Deletes immediate children.
+     */
+    private void deleteOne2ManyChildrenShallow(OneToManyAssociation association){
+        String targetTable = metaModelOf(association.getTargetClass()).getTableName();
+        new DB(metaModelLocal.getDbName()).exec("DELETE FROM " + targetTable + " WHERE " + association.getFkName() + " = ?", getId());
     }
 
     private void deletePolymorphicChildrenShallow() {
         List<OneToManyPolymorphicAssociation> polymorphics = metaModelLocal.getPolymorphicAssociations(new ArrayList<Association>());
         for (OneToManyPolymorphicAssociation association : polymorphics) {
-            String targetTable = metaModelOf(association.getTargetClass()).getTableName();
-            String parentType = association.getTypeLabel();
-            new DB(metaModelLocal.getDbName()).exec("DELETE FROM " + targetTable + " WHERE parent_id = ? AND parent_type = ?", getId(), parentType);
+            deletePolymorphicChildrenShallow(association);
         }
     }
 
+    /**
+     * Deletes immediate polymorphic children
+     */
+    private void deletePolymorphicChildrenShallow(OneToManyPolymorphicAssociation association){
+        String targetTable = metaModelOf(association.getTargetClass()).getTableName();
+        String parentType = association.getTypeLabel();
+        new DB(metaModelLocal.getDbName()).exec("DELETE FROM " + targetTable + " WHERE parent_id = ? AND parent_type = ?", getId(), parentType);
+    }
 
     private void deleteChildrenDeep(List<? extends Association> childAssociations){
         for (Association association : childAssociations) {
@@ -644,6 +667,32 @@ public abstract class Model extends CallbackSupport implements Externalizable {
                 for (Model model : dependencies) {
                     model.deleteCascade();
                 }
+            }
+        }
+    }
+
+    /**
+     * Deletes immediate children (does not walk the dependency tree).
+     * If you have integrity constraints in the DB that are not accounted
+     * by this call, you  will get DB exceptions.
+     * <p>
+     * <h4>One to many and polymorphic associations</h4>
+     * Deletes all child records.
+     * <h4>Many to many associations</h4>
+     * Deletes links in a join table. Nothing else is deleted.
+     * </p>
+     *
+     * @param clazz type of a child to delete
+     */
+    public <T extends Model> void deleteChildrenShallow(Class<T> clazz) {
+        List<Association> associations = metaModelLocal.getAssociationsForTarget(clazz);
+        for (Association association : associations) {
+            if (association instanceof OneToManyAssociation) {
+                deleteOne2ManyChildrenShallow((OneToManyAssociation) association);
+            }else if(association instanceof Many2ManyAssociation){
+                deleteManyToManyLinks((Many2ManyAssociation) association);
+            }else if(association instanceof OneToManyPolymorphicAssociation){
+                deletePolymorphicChildrenShallow((OneToManyPolymorphicAssociation) association);
             }
         }
     }
@@ -739,12 +788,12 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * regardless how these names came from DB. This method is a convenience
      * method for displaying values on web pages.
      *
-     * <p/>
+     * <p></p>
      * If {@link LazyList#include(Class[])} method was used, and this
      * model belongs to a parent (as in many to one relationship), then the parent
      * will be eagerly loaded and also converted to a map. Parents' maps are keyed in the
      * returned map by underscored name of a parent model class name.
-     * <p/>
+     * <p></p>
      * For example, if this model were <code>Address</code>
      * and a parent is <code>User</code> (and user has many addresses), then the resulting map would
      * have all the attributes of the current table and another map representing a parent user with a
@@ -1742,13 +1791,13 @@ public abstract class Model extends CallbackSupport implements Externalizable {
 
     /**
      * This methods supports one to many, many to many relationships as well as polymorphic associations.
-     * <p/>
+     * <p></p>
      * In case of one to many, the <code>clazz</code>  must be a class of a child model, and it will return a
      * collection of all children.
-     * <p/>
+     * <p></p>
      * In case of many to many, the <code>clazz</code>  must be a class of a another related model, and it will return a
      * collection of all related models.
-     * <p/>
+     * <p></p>
      * In case of polymorphic, the <code>clazz</code>  must be a class of a polymorphically related model, and it will return a
      * collection of all related models.
      *
@@ -1776,13 +1825,13 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * Provides a list of child models in one to many, many to many and polymorphic associations, but in addition also allows to filter this list
      * by criteria.
      *
-     * <p/>
+     * <p></p>
      * <strong>1.</strong> For one to many, the criteria is against the child table.
      *
-     * <p/>
+     * <p></p>
      * <strong>2.</strong> For polymorphic association, the criteria is against the child table.
      *
-     * <p/>
+     * <p></p>
      * <strong>3.</strong> For many to many, the criteria is against the join table.
      * For example, if you have table PROJECTS, ASSIGNMENTS and PROGRAMMERS, where a project has many programmers and a programmer
      * has many projects, and ASSIGNMENTS is a join table, you can write code like this, assuming that the ASSIGNMENTS table
@@ -2096,6 +2145,11 @@ public abstract class Model extends CallbackSupport implements Externalizable {
          ModelDelegate.callbackWith(modelClass(), listeners);
     }
 
+    /**
+     * Sets  lifecycle listeners on current model. All previous listeners will be unregistered.
+     *
+     * @param listeners list of lifecycle listeners
+     */
     public static void callbackWith(CallbackListener... listeners) {
          ModelDelegate.callbackWith(modelClass(), listeners);
     }
@@ -2456,6 +2510,17 @@ public abstract class Model extends CallbackSupport implements Externalizable {
         }
     }
 
+    /**
+     * Convenience method. Calls {@link #add(Model)} one at the time for each member of the list.
+     * All rules of the {@link #add(Model)} method apply.
+     *
+     * @param models list of model instances to add to this one.
+     */
+    public <T extends Model>  void addModels(List<T> models){
+        for (T model : models) {
+            add(model);
+        }
+    }
 
     /**
      * Removes associated child from this instance. The child model should be either in belongs to association (including polymorphic) to this model
@@ -2467,7 +2532,7 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * <h3>Many to many associations</h3>
      * This method will remove an associated record from the join table, and will do nothing to the child model or record.
      *
-     * <p/>
+     * <p></p>
      * This method will throw a {@link NotAssociatedException} in case a model that has no relationship is passed.
      *
      * @param child model representing a "child" as in one to many or many to many association with this model.
@@ -2531,7 +2596,7 @@ public abstract class Model extends CallbackSupport implements Externalizable {
      * If a record was deleted, it is frozen and cannot be saved. After it is thawed, it can be saved again, but it will
      * generate a new insert statement and create a new record in the table with all the same attribute values.
      *
-     * <p/><p/>
+     * <p><p/>
      * Synonym for {@link #defrost()}.
      */
     public void thaw(){

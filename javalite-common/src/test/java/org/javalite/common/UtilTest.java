@@ -31,7 +31,7 @@ import org.junit.Test;
  * @author Igor Polevoy
  * @author Eric Nielsen
  */
-public class UtilTest extends JSpecSupport {
+public class UtilTest implements JSpecSupport {
 
     @Test
     public void testJoin(){
@@ -103,7 +103,7 @@ public class UtilTest extends JSpecSupport {
 
     @Test
     public void shouldReadLargeUTF8() throws IOException {
-        System.out.println(Util.readResource("/large.txt"));
+        Util.readResource("/large.txt");
 
     }
 

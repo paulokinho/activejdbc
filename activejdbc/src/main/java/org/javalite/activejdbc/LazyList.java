@@ -151,7 +151,7 @@ public class LazyList<T extends Model> extends AbstractLazyList<T> implements Ex
      * even when a post author and comments are requested. Use this with caution as this method can allocate
      * a lot of memory (obviously).
      *
-     * <p/>
+     * <p></p>
      *
      * This method will not follow relationships of related models, but rather only relationships of the current
      * one.
@@ -182,9 +182,9 @@ public class LazyList<T extends Model> extends AbstractLazyList<T> implements Ex
      *
      * @return list of maps, where each map represents a row in the resultset keyed off column names.
      */
-    public List<Map> toMaps(){
+    public List<Map<String, Object>> toMaps() {
         hydrate();
-        List<Map> maps = new ArrayList<>(delegate.size());
+        List<Map<String, Object>> maps = new ArrayList<>(delegate.size());
         for (T t : delegate) {
             maps.add(t.toMap());
         }
@@ -296,10 +296,10 @@ public class LazyList<T extends Model> extends AbstractLazyList<T> implements Ex
     public String toSql(boolean showParameters) {
         String sql;
         if(forPaginator){
-            sql = metaModel.getDialect().formSelect(null, fullQuery, orderBys, limit, offset);
+            sql = metaModel.getDialect().formSelect(null, null, fullQuery, orderBys, limit, offset);
         }else{
             sql = fullQuery != null ? fullQuery
-                    : metaModel.getDialect().formSelect(metaModel.getTableName(), subQuery, orderBys, limit, offset);
+                    : metaModel.getDialect().formSelect(metaModel.getTableName(), null, subQuery, orderBys, limit, offset);
         }
         if (showParameters) {
             StringBuilder sb = new StringBuilder(sql).append(", with parameters: ");
@@ -425,7 +425,7 @@ public class LazyList<T extends Model> extends AbstractLazyList<T> implements Ex
      * List firstNames = Person.findAll().collect("first_name");
      * </pre>
      * provided that the corresponding table has a column <code>first_name</code>.
-     * <p/><p/>
+     * <p><p/>
      * Keep in mind, that if all you need is a one column data, this method of getting it is not
      * the most efficient (because since you are using a model, you will query all columns from a table,
      * but will use only one). In these cases, you might want to consider {@link Base#firstColumn(String, Object...)} and

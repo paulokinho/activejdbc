@@ -76,11 +76,7 @@ public class ModelTest extends ActiveJDBCTest {
             Person.createIt("name", "Name: " + i, "last_name", "Last Name: " + i);
         }
 
-        ModelListener<Person> modelListener = new ModelListener<Person>() {
-            public void onModel(Person person) {
-                counter ++;
-            }
-        };
+        ModelListener<Person> modelListener = person -> counter ++; // side effect :)
         Person.findWith(modelListener, "name like ?", "%2%");
         a(counter).shouldEqual(19);
     }
@@ -202,8 +198,8 @@ public class ModelTest extends ActiveJDBCTest {
 
     @Test
     public void testCount() {
-        deleteAndPopulateTable("people");
-        a(Person.count()).shouldBeEqual(4L);
+        deleteAndPopulateTable("addresses");
+        a(Address.count()).shouldBeEqual(7);
     }
 
     @Test
@@ -313,7 +309,7 @@ public class ModelTest extends ActiveJDBCTest {
         deleteAndPopulateTables("libraries", "books");
         Library l = Library.findById(1);
         List<Book> books = l.getAll(Book.class);
-        Library lib = (Library)books.get(0).parent(Library.class);
+        Library lib = books.get(0).parent(Library.class);
         the(lib).shouldNotBeNull();
         the(l.getId()).shouldBeEqual(lib.getId());
 

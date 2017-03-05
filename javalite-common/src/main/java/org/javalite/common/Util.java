@@ -480,4 +480,48 @@ public final class Util {
     public static byte[] fromBase64(String input) {
         return Base64.getDecoder().decode(input);
     }
+
+    /**
+     * Convenience method to create literal String arrays.
+     * Helps to replace code like this:
+     * <p>
+     *     <code>
+     *         String[] t = new String[]{"one", "two"}
+     *     </code>
+     * </p>
+     * with:
+     * <p>
+     *      <code>
+     *         String[] t = arr("one", "two");
+     *     </code>
+     * </p>
+     *
+     * @param params strings to create array
+     * @return array of strings
+     */
+    public String[] arr(String ... params){
+        return params;
+    }
+
+    /**
+     * Reads  a property file from classpath or from a file system to a properties object.
+     * The path can look like: <code>/opt/database.properties</code>. If this is found on classath, it is loaded first.
+     * If not found on classpath,  it will look for the file on te file system using the same path.
+     *
+     * @param file full path to a property file on class path
+     * @return <code>java.util.Properties</code> object initialized from the file.
+     * @throws IOException
+     */
+    public static Properties readProperties(String file) throws IOException {
+        InputStream in = Util.class.getResourceAsStream(file);
+        Properties props = new Properties();
+        if (in != null) {
+            props.load(in);
+        } else {
+            FileInputStream fin = new FileInputStream(file);
+            props.load(fin);
+            fin.close();
+        }
+        return props;
+    }
 }
